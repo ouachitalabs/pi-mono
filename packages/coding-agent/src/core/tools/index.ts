@@ -9,6 +9,14 @@ export {
 	createBashTool,
 } from "./bash.js";
 export {
+	type BulkLoadOperations,
+	type BulkLoadToolDetails,
+	type BulkLoadToolInput,
+	type BulkLoadToolOptions,
+	bulkLoadTool,
+	createBulkLoadTool,
+} from "./bulk-load.js";
+export {
 	createEditTool,
 	type EditOperations,
 	type EditToolDetails,
@@ -68,6 +76,7 @@ export {
 
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { type BashToolOptions, bashTool, createBashTool } from "./bash.js";
+import { bulkLoadTool, createBulkLoadTool } from "./bulk-load.js";
 import { createEditTool, editTool } from "./edit.js";
 import { createFindTool, findTool } from "./find.js";
 import { createGrepTool, grepTool } from "./grep.js";
@@ -93,6 +102,7 @@ export const allTools = {
 	grep: grepTool,
 	find: findTool,
 	ls: lsTool,
+	bulk_load: bulkLoadTool,
 };
 
 export type ToolName = keyof typeof allTools;
@@ -120,7 +130,13 @@ export function createCodingTools(cwd: string, options?: ToolsOptions): Tool[] {
  * Create read-only tools configured for a specific working directory.
  */
 export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[] {
-	return [createReadTool(cwd, options?.read), createGrepTool(cwd), createFindTool(cwd), createLsTool(cwd)];
+	return [
+		createReadTool(cwd, options?.read),
+		createGrepTool(cwd),
+		createFindTool(cwd),
+		createLsTool(cwd),
+		createBulkLoadTool(cwd),
+	];
 }
 
 /**
@@ -135,5 +151,6 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		grep: createGrepTool(cwd),
 		find: createFindTool(cwd),
 		ls: createLsTool(cwd),
+		bulk_load: createBulkLoadTool(cwd),
 	};
 }

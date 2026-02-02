@@ -1,8 +1,9 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bashTool, createBashTool } from "../src/core/tools/bash.js";
+import { createBulkLoadTool } from "../src/core/tools/bulk-load.js";
 import { editTool } from "../src/core/tools/edit.js";
 import { findTool } from "../src/core/tools/find.js";
 import { grepTool } from "../src/core/tools/grep.js";
@@ -634,5 +635,91 @@ describe("edit tool CRLF handling", () => {
 
 		const content = readFileSync(testFile, "utf-8");
 		expect(content).toBe("\uFEFFfirst\r\nREPLACED\r\nthird\r\n");
+	});
+
+	describe("bulk_load tool", () => {
+		it("should load all files matching glob pattern", async () => {
+			// Create test files
+			mkdirSync(join(testDir, "src"), { recursive: true });
+			writeFileSync(join(testDir, "src", "file1.ts"), "const a = 1;");
+			writeFileSync(join(testDir, "src", "file2.ts"), "const b = 2;");
+			writeFileSync(join(testDir, "src", "file3.js"), "const c = 3;"); // Should not match
+
+			const bulkLoadTool = createBulkLoadTool(testDir);
+			const result = await bulkLoadTool.execute("test-bulk-1", { glob: "src/**/*.ts" });
+			const output = getTextOutput(result);
+
+			expect(output).toContain("=== src/file1.ts ===");
+			expect(output).toContain("const a = 1;");
+			expect(output).toContain("=== src/file2.ts ===");
+			expect(output).toContain("const b = 2;");
+			expect(output).not.toContain("file3.js");
+			expect(output).toContain("[BulkLoad: 2 files");
+		});
+
+		it("should respect .gitignore", async () => {
+			mkdirSync(join(testDir, "src"), { recursive: true });
+			writeFileSync(join(testDir, ".gitignore"), "ignored.ts\n");
+			writeFileSync(join(testDir, "src", "included.ts"), "included");
+			writeFileSync(join(testDir, "src", "ignored.ts"), "ignored");
+
+			const bulkLoadTool = createBulkLoadTool(testDir);
+			const result = await bulkLoadTool.execute("test-bulk-2", { glob: "src/**/*.ts" });
+			const output = getTextOutput(result);
+
+			expect(output).toContain("=== src/included.ts ===");
+			expect(output).not.toContain("ignored.ts");
+		});
+
+		it("should respect token limit and report skipped files", async () => {
+			mkdirSync(join(testDir, "src"), { recursive: true });
+			// Create files that will exceed a small token limit
+			writeFileSync(join(testDir, "src", "small.ts"), "x");
+			writeFileSync(join(testDir, "src", "large.ts"), "y".repeat(1000));
+
+			const bulkLoadTool = createBulkLoadTool(testDir);
+			// Use a very small token limit (100 tokens)
+			const result = await bulkLoadTool.execute("test-bulk-3", { glob: "src/**/*.ts", maxTokens: 100 });
+			const output = getTextOutput(result);
+
+			// Should load at least the small file
+			expect(output).toContain("=== src/small.ts ===");
+			// Should report skipped file
+			expect(output).toContain("skipped");
+		});
+
+		it("should follow symlinks one level deep", async () => {
+			mkdirSync(join(testDir, "src"), { recursive: true });
+			mkdirSync(join(testDir, "external"), { recursive: true });
+			writeFileSync(join(testDir, "external", "linked.ts"), "linked content");
+			symlinkSync(join(testDir, "external", "linked.ts"), join(testDir, "src", "link.ts"));
+
+			const bulkLoadTool = createBulkLoadTool(testDir);
+			const result = await bulkLoadTool.execute("test-bulk-4", { glob: "src/**/*.ts" });
+			const output = getTextOutput(result);
+
+			expect(output).toContain("=== src/link.ts ===");
+			expect(output).toContain("linked content");
+		});
+
+		it("should return no files message when pattern matches nothing", async () => {
+			const bulkLoadTool = createBulkLoadTool(testDir);
+			const result = await bulkLoadTool.execute("test-bulk-5", { glob: "**/*.nonexistent" });
+			const output = getTextOutput(result);
+
+			expect(output).toContain("No files found matching pattern");
+		});
+
+		it("should count tokens accurately", async () => {
+			mkdirSync(join(testDir, "src"), { recursive: true });
+			writeFileSync(join(testDir, "src", "test.ts"), "hello world");
+
+			const bulkLoadTool = createBulkLoadTool(testDir);
+			const result = await bulkLoadTool.execute("test-bulk-6", { glob: "src/**/*.ts" });
+
+			expect(result.details).toBeDefined();
+			expect(result.details.totalTokens).toBeGreaterThan(0);
+			expect(result.details.filesLoaded).toBe(1);
+		});
 	});
 });
